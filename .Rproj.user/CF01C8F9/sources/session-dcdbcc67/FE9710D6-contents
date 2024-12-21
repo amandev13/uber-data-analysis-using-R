@@ -1,0 +1,125 @@
+# Load required libraries
+library(ggplot2)    # For creating plots
+library(ggthemes)   # For additional ggplot themes
+library(lubridate)  # For date-time manipulation
+library(dplyr)      # For data manipulation
+library(tidyr)      # For tidying up data
+library(tidyverse)  # A collection of useful R packages (includes dplyr, ggplot2, tidyr, etc.)
+library(DT)         # For displaying interactive DataTables
+library(scales)     # For scaling axes (e.g., adding commas to numbers)
+
+# Define a custom color palette
+colors = c("#CC1011", "#665555", "#05a399", "#cfcaca", "#f5e840", "#0683c9", "#e075b0")
+print(colors)  # Print the color palette
+
+# Read in the CSV data files for each month (April to September)
+apr <- read.csv("uber-raw-data-apr14.csv")
+may <- read.csv("uber-raw-data-may14.csv")
+june <- read.csv("uber-raw-data-jun14.csv")
+july <- read.csv("uber-raw-data-jul14.csv")
+aug <- read.csv("uber-raw-data-aug14.csv")
+sept <- read.csv("uber-raw-data-sep14.csv")
+
+# Combine all the individual monthly data into one large dataset
+data <- rbind(apr, may, june, july, aug, sept)
+
+# Display the dimensions of the combined dataset
+cat("The dimensions of the data are:", dim(data))
+
+# Show the first few rows of the combined data
+head(data)
+
+# Convert the 'Date.Time' column to POSIXct format for date-time manipulation
+data$Date.Time <- as.POSIXct(data$Date.Time, format="%m/%d/%Y %H:%M:%S")
+
+# Extract time from the 'Date.Time' and format it as HH:MM:SS
+data$Time <- format(as.POSIXct(data$Date.Time, format = "%m/%d/%Y %H:%M:%S"), format="%H:%M:%S")
+
+# Use lubridate to parse 'Date.Time' into a more easily manageable format
+data$Date.Time <- ymd_hms(data$Date.Time)
+
+# Create new columns for day, month, year, and day of the week
+data$day <- factor(day(data$Date.Time))               # Extract day from 'Date.Time'
+data$month <- factor(month(data$Date.Time, label=TRUE))  # Extract month as factor with labels
+data$year <- factor(year(data$Date.Time))             # Extract year
+data$dayofweek <- factor(wday(data$Date.Time, label=TRUE))  # Extract day of the week (e.g., "Mon", "Tue")
+
+# Extract time components from the 'Time' column
+data$second = factor(second(hms(data$Time)))  # Extract second from time
+data$minute = factor(minute(hms(data$Time)))  # Extract minute from time
+data$hour = factor(hour(hms(data$Time)))      # Extract hour from time
+
+data <- na.omit(data)
+# Display the first few rows of the dataset after modifications
+head(data)
+
+# 1. Aggregate the data by hour and count the number of trips in each hour
+hourly_data <- data %>% 
+  group_by(hour) %>%       # Group the data by the 'hour' column
+  dplyr::summarize(Total = n())  # Count the number of records in each group (i.e., the total number of trips)
+
+# Show the resulting aggregated data
+print(hourly_data)
+
+# 2. Show the aggregated data as an interactive DataTable
+datatable(hourly_data)  # Create an interactive table of the 'hourly_data'
+
+# 3. Create a bar plot showing trips by hour
+plot <- ggplot(hourly_data, aes(hour, Total)) + 
+  geom_bar(stat = "identity", fill = "steelblue", color = "red") +  # Create a bar plot with steelblue bars and red borders
+  ggtitle("Trips Every Hour", subtitle = "aggregated today") +  # Set the main title and subtitle
+  theme(
+    legend.position = "none",  # Remove the legend (not needed for this plot)
+    plot.title = element_text(hjust = 0.5),  # Center the title
+    plot.subtitle = element_text(hjust = 0.5)  # Center the subtitle
+  ) + 
+  scale_y_continuous(labels = scales::comma)  # Format the y-axis labels with commas (e.g., 1,000)
+
+# 4. Save the bar plot to a PNG file
+ggsave("hourly_trips_plot.png", 
+       plot = plot,  # The plot object to save
+       width = 1500,  # Width of the saved image (in pixels)
+       height = 800,  # Height of the saved image (in pixels)
+       units = "px",  # Specify units for width and height (pixels)
+       dpi = 300)  # Set the resolution of the image to 300 DPI
+
+# 5. Aggregate the data by both month and hour
+month_hour_data <- data %>% 
+  group_by(month, hour) %>%  # Group data by both 'month' and 'hour'
+  dplyr::summarize(Total = n())  # Count the number of trips for each combination of month and hour
+
+# Add the 'hour_group' column to categorize the hours into 6-hour intervals
+month_hour_data$hour_group <- case_when(
+  month_hour_data$hour %in% c(0, 1, 2, 3, 4, 5) ~ "12am - 6am",  # 12am to 6am
+  month_hour_data$hour %in% c(6, 7, 8, 9, 10, 11) ~ "7am - 12pm",  # 7am to 12pm
+  month_hour_data$hour %in% c(12, 13, 14, 15, 16, 17) ~ "1pm - 6pm",  # 1pm to 6pm
+  month_hour_data$hour %in% c(18, 19, 20, 21, 22, 23) ~ "7pm - 12am"   # 7pm to 12am
+)
+
+# Define colors for the 6-hour intervals
+hour_colors <- c(
+  "12am - 6am" = "red",
+  "7am - 12pm" = "blue",
+  "1pm - 6pm" = "green",
+  "7pm - 12am" = "purple"
+)
+
+# 6. Create a bar plot showing trips by hour and month
+plot_month_hour <- ggplot(month_hour_data, aes(x = month, y = Total, fill = hour_group)) + 
+  geom_bar(stat = "identity", position = "stack") +  # Create a stacked bar plot
+  ggtitle("Trips by Hour and Month") +  # Set the main title
+  scale_y_continuous(labels = scales::comma) +  # Format y-axis labels with commas
+  scale_fill_manual(values = hour_colors) +  # Apply the custom colors to the 6-hour groups
+  theme_minimal() +  # Apply a minimal theme
+  theme(
+    legend.title = element_blank(),  # Remove legend title
+    plot.title = element_text(hjust = 0.5)  # Center-align the plot title
+  )
+
+# 7. Save the second plot to a PNG file
+ggsave("month_hour_trips_plot.png", 
+       plot = plot_month_hour,  # The plot object to save
+       width = 1900,  # Width of the saved image (in pixels)
+       height = 900,  # Height of the saved image (in pixels)
+       units = "px",  # Specify units for width and height (pixels)
+       dpi = 100)  # Set the resolution of the image to 300 DPI
